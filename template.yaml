@@ -1,0 +1,141 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Reto Ciber - HTTP API + Lambda + DynamoDB para un laboratorio CTF educativo.
+
+Parameters:
+  UserPoolId:
+    Type: String
+    Default: us-east-1_wkQY366JQ
+    Description: User Pool ID de Cognito.
+  ClientId:
+    Type: String
+    Default: 4b5jtn0tvsajtu8jv0j0bgnlla
+    Description: Client ID SPA público de Cognito.
+  AppOrigin:
+    Type: String
+    Default: http://localhost:5173
+    Description: Origen exacto permitido por CORS (sin barra final).
+  LabMode:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: "Con 'true' se activa la omisión educativa de grupo solo en GET /admin/flag; con 'false' se exige admin."
+  ChallengeId:
+    Type: String
+    Default: reto-ciber-2026
+    Description: Identificador de la edición; forma parte de la clave de la bandera.
+
+Resources:
+  LabTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+
+  LabFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: src/index.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      MemorySize: 256
+      Timeout: 10
+      ReservedConcurrentExecutions: 5
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref LabTable
+          USER_POOL_ID: !Ref UserPoolId
+          CLIENT_ID: !Ref ClientId
+          APP_ORIGIN: !Ref AppOrigin
+          CHALLENGE_ID: !Ref ChallengeId
+          LAB_MODE: !Ref LabMode
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+              Resource: !GetAtt LabTable.Arn
+      Events:
+        AdminFlag:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref LabHttpApi
+            Path: /admin/flag
+            Method: GET
+        AdminFlagPreflight:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref LabHttpApi
+            Path: /admin/flag
+            Method: OPTIONS
+        Submissions:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref LabHttpApi
+            Path: /submissions
+            Method: POST
+        SubmissionsPreflight:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref LabHttpApi
+            Path: /submissions
+            Method: OPTIONS
+
+  LabHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiAccessLogGroup.Arn
+        # No se registran cabeceras, cuerpos, JWT ni banderas.
+        Format: >-
+          {"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","routeKey":"$context.routeKey","status":"$context.status","protocol":"$context.protocol","responseLength":"$context.responseLength"}
+
+  ApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+
+  LabFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${LabFunction}
+      RetentionInDays: 7
+
+Outputs:
+  ApiUrl:
+    Description: URL base para VITE_API_URL (sin barra final).
+    Value: !Sub https://${LabHttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod
+  TableName:
+    Description: Tabla DynamoDB del laboratorio.
+    Value: !Ref LabTable
+  FunctionName:
+    Description: Función Lambda.
+    Value: !Ref LabFunction
+  LabMode:
+    Description: 'Modo del reto. true expone la vulnerabilidad educativa solo en GET /admin/flag.'
+    Value: !Ref LabMode

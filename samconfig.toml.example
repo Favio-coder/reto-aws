@@ -1,0 +1,9 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "reto-ciber-lab"
+region = "us-east-1"
+resolve_s3 = true
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = true
+parameter_overrides = "UserPoolId=us-east-1_wkQY366JQ ClientId=4b5jtn0tvsajtu8jv0j0bgnlla AppOrigin=http://localhost:5173 LabMode=true ChallengeId=reto-ciber-2026"
