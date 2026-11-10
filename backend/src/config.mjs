@@ -11,7 +11,7 @@ export function loadConfig(env = process.env) {
     clientId: env.CLIENT_ID,
     // Solo el valor exacto "true" activa el laboratorio.
     labMode: env.LAB_MODE === 'true',
-    edition: env.CHALLENGE_ID || 'reto-ciber-2026',
+    edition: env.CHALLENGE_ID || 'TU_CHALLENGE_ID',
     appOrigin: env.APP_ORIGIN || 'http://localhost:5173',
   };
 }

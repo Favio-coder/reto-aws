@@ -1,22 +1,53 @@
 import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { buildLogoutUrl } from './logoutUrl.js';
 
-// Configuración pública. Nunca colocar un client_secret ni claves AWS aquí.
-// Confirma mayúsculas/minúsculas del User Pool ID en tu consola de Cognito.
+// Configuración pública de Cognito para una SPA. Nunca colocar aquí un
+// client_secret, AWS Access Key, AWS Secret Access Key, contraseñas, tokens
+// ni banderas. Vite expone todas las variables VITE_* en el bundle público.
+const env = import.meta.env;
+
+const requiredEnv = {
+  VITE_COGNITO_REGION: env.VITE_COGNITO_REGION,
+  VITE_COGNITO_USER_POOL_ID: env.VITE_COGNITO_USER_POOL_ID,
+  VITE_COGNITO_CLIENT_ID: env.VITE_COGNITO_CLIENT_ID,
+  VITE_COGNITO_DOMAIN: env.VITE_COGNITO_DOMAIN,
+  VITE_COGNITO_REDIRECT_URI: env.VITE_COGNITO_REDIRECT_URI,
+  VITE_COGNITO_LOGOUT_URI: env.VITE_COGNITO_LOGOUT_URI,
+};
+
+const missing = Object.entries(requiredEnv)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (missing.length > 0) {
+  throw new Error(
+    `Faltan variables de entorno de Cognito: ${missing.join(', ')}. `
+    + 'Copia .env.example a .env.local, completa los valores y reinicia Vite.',
+  );
+}
+
+const region = requiredEnv.VITE_COGNITO_REGION;
+const userPoolId = requiredEnv.VITE_COGNITO_USER_POOL_ID;
+const clientId = requiredEnv.VITE_COGNITO_CLIENT_ID;
+
+function withoutTrailingSlashes(value) {
+  return value.replace(/\/+$/, '');
+}
+
 export const authConfig = {
-  authority: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_wkQY366JQ',
-  client_id: '4b5jtn0tvsajtu8jv0j0bgnlla',
-  redirect_uri: 'http://localhost:5173/callback',
+  authority: `https://cognito-idp.${region}.amazonaws.com/${userPoolId}`,
+  client_id: clientId,
+  redirect_uri: requiredEnv.VITE_COGNITO_REDIRECT_URI,
   response_type: 'code',
   scope: 'openid email',
   // No se define post_logout_redirect_uri: Cognito /logout espera logout_uri.
 };
 
-export const cognitoDomain = 'https://us-east-1wkqy366jq.auth.us-east-1.amazoncognito.com';
+export const cognitoDomain = withoutTrailingSlashes(requiredEnv.VITE_COGNITO_DOMAIN);
 
 // Cognito exige este valor exacto en Allowed sign-out URLs.
 // Se envía como `logout_uri`; nunca como `redirect_uri`.
-export const logoutUri = 'http://localhost:5173/';
+export const logoutUri = requiredEnv.VITE_COGNITO_LOGOUT_URI;
 
 export const userManager = new UserManager({
   ...authConfig,
@@ -28,6 +59,20 @@ export const userManager = new UserManager({
   revokeTokenTypes: ['refresh_token'],
   // Authorization Code usa PKCE de forma predeterminada en oidc-client-ts.
 });
+
+// Construye la URL de registro (Sign up) de Cognito Hosted UI / Managed Login.
+// Redirige al usuario al flujo de registro de Cognito sin crear un formulario
+// propio en React. Tras registrarse, Cognito envía un código de confirmación
+// por correo y el usuario debe confirmar antes de poder iniciar sesión.
+export function buildRegisterUrl() {
+  const url = new URL('/login', cognitoDomain);
+  url.searchParams.set('client_id', authConfig.client_id);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', 'openid email');
+  url.searchParams.set('redirect_uri', requiredEnv.VITE_COGNITO_REDIRECT_URI);
+  url.searchParams.set('action', 'REGISTER');
+  return url.toString();
+}
 
 export async function login() {
   await userManager.clearStaleState();

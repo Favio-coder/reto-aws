@@ -26,3 +26,10 @@ input:disabled,textarea:disabled{opacity:.6;cursor:not-allowed}
 @keyframes skeleton{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .card>.error,.panel>.error{margin:0 0 18px}
 @media(max-width:760px){.session-bar{align-items:flex-start}.flag-box{padding:14px}}
+.admin-message{padding:12px;border:1px solid #5d8c63;background:#1b3324;border-radius:8px;color:#c9f7cf;font-size:13px;margin:18px 0}
+.code-display{padding:18px;border:1px solid #b9f877;background:#12210e;border-radius:12px;margin-top:18px;text-align:center}
+.code-box{margin:12px 0;padding:14px;border:1px dashed #b9f877;border-radius:8px;background:#0e1917}
+.code-box code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:20px;letter-spacing:4px;color:#b9f877;font-weight:700;overflow-wrap:anywhere;word-break:break-all}
+.code-instruction{color:#a6b7ad;font-size:13px;margin-bottom:10px}
+.code-expired{padding:12px;border:1px solid #b97d6f;background:#3a2422;border-radius:8px;color:#e7eeeb;font-size:13px;margin-top:18px}
+.ok{color:#c9f7cf;font-size:13px;margin:0 0 10px}

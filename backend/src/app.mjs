@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomInt, createHash } from 'node:crypto';
 import { flagsEqual, generateFlag } from './flags.mjs';
 
 const MAX_BODY_BYTES = 8 * 1024;
@@ -7,6 +7,7 @@ const MIN_EXPLANATION_LENGTH = 10;
 const MAX_EXPLANATION_LENGTH = 800;
 const MAX_FAILURES = 3;
 const COOLDOWN_MS = 60_000;
+const CODE_TTL_MS = 10 * 60 * 1000; // 10 minutos
 
 class HttpError extends Error {
   constructor(statusCode, code, message, extra = {}, headers = {}) {
@@ -165,6 +166,10 @@ function submissionKey(sub, submittedAt) {
   return { pk: `USER#${sub}`, sk: `SUB#${submittedAt}#${randomUUID()}` };
 }
 
+function codeKey(edition, sub) {
+  return { pk: `CODE#${edition}`, sk: `USER#${sub}` };
+}
+
 async function getOrCreateFlag(store, edition, sub, nowMs) {
   const key = flagKey(edition, sub);
 
@@ -217,16 +222,42 @@ async function getRateState(store, edition, sub, nowMs) {
 
 async function handleAdminFlag({ event, store, verifyToken, config, now }) {
   const identity = await authenticate(event, verifyToken, config);
+  const nowMs = now();
+
+  // Usuario real del grupo admin: mensaje de felicitaciones, sin bandera.
+  // Nunca se llama a Cognito AdminAddUserToGroup ni se modifican grupos.
+  if (isAdmin(identity.groups)) {
+    return {
+      statusCode: 200,
+      body: {
+        challengeId: config.edition,
+        message: '¡Felicidades, ingresaste como administrador!',
+      },
+    };
+  }
 
   // VULNERABILIDAD EDUCATIVA (solo LAB_MODE=true):
   // esta ruta omite a propósito la comprobación de cognito:groups.
   // El JWT se sigue validando por completo (firma, emisor, cliente,
   // expiración y token_use=access). La omisión está aislada aquí.
-  if (!config.labMode && !isAdmin(identity.groups)) {
+  if (!config.labMode) {
     throw new HttpError(403, 'forbidden', 'Se requiere pertenecer al grupo admin.');
   }
 
-  const nowMs = now();
+  // Evitar mostrar la bandera nuevamente después de resolverla.
+  const solvedKey = solveKey(config.edition, identity.sub);
+  const existingSolve = await store.get(solvedKey.pk, solvedKey.sk);
+  if (existingSolve) {
+    return {
+      statusCode: 200,
+      body: {
+        challengeId: config.edition,
+        message: 'Ya completaste el reto.',
+        alreadySolved: true,
+      },
+    };
+  }
+
   const flag = await getOrCreateFlag(store, config.edition, identity.sub, nowMs);
   return {
     statusCode: 200,
@@ -297,6 +328,24 @@ async function handleSubmission({ event, store, verifyToken, config, now }) {
       };
     }
 
+    // Generar código numérico aleatorio de 6 dígitos en el backend
+    // (nunca únicamente en React).
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const codeHash = createHash('sha256').update(code, 'utf8').digest('hex');
+    const expiresAt = new Date(nowMs + CODE_TTL_MS).toISOString();
+
+    // Guardar únicamente el hash del código, asociado al usuario y al challenge,
+    // con expiración de 10 minutos. No se almacena el código en texto plano.
+    await store.put({
+      ...codeKey(config.edition, identity.sub),
+      entity: 'code',
+      userId: identity.sub,
+      challengeId: config.edition,
+      codeHash,
+      expiresAt,
+      createdAt: submittedAt,
+    });
+
     await store.put({
       ...submissionKey(identity.sub, submittedAt),
       entity: 'submission',
@@ -322,7 +371,10 @@ async function handleSubmission({ event, store, verifyToken, config, now }) {
       body: {
         correct: true,
         alreadySolved: false,
-        message: 'Bandera correcta. Tu resolución quedó registrada.',
+        message: '¡Felicidades! Completaste el reto.',
+        code,
+        instruction: 'Envía este código al organizador por WhatsApp.',
+        expiresIn: CODE_TTL_MS / 1000,
       },
     };
   }

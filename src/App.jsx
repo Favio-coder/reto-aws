@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { initializeSession, login, logout, userManager } from './auth';
+import { initializeSession, login, logout, userManager, buildRegisterUrl } from './auth';
 import { ApiError, getAdminFlag, submitFlag } from './api';
-import { isAdminUser } from './roles';
+import { isAdminUser, isEmailVerified } from './roles';
 
 const sessionError = 'No se pudo completar el acceso. Revisa las URLs de Cognito y vuelve a iniciar sesión desde esta pestaña.';
 
@@ -32,6 +32,7 @@ function SessionBar({ user, admin }) {
 
 function AdminPanel({ user }) {
   const [flag, setFlag] = useState('');
+  const [adminMessage, setAdminMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copyState, setCopyState] = useState('');
@@ -45,8 +46,15 @@ function AdminPanel({ user }) {
     getAdminFlag(user.access_token)
       .then(data => {
         if (!active) return;
-        if (typeof data.flag !== 'string' || !data.flag) {
-          setError('La API no devolvió una bandera.');
+        // Administrador real: mensaje sin bandera.
+        if (typeof data.message === 'string' && data.message && !data.flag) {
+          setAdminMessage(data.message);
+          setFlag('');
+          return;
+        }
+        // Ya completado: no mostrar la bandera nuevamente.
+        if (data.alreadySolved || typeof data.flag !== 'string' || !data.flag) {
+          setAdminMessage(data.message || 'Ya completaste el reto.');
           setFlag('');
           return;
         }
@@ -101,7 +109,13 @@ function AdminPanel({ user }) {
         </>
       )}
 
-      {!loading && error && (
+      {!loading && adminMessage && !flag && (
+        <div className="admin-message" role="status">
+          <p>{adminMessage}</p>
+        </div>
+      )}
+
+      {!loading && error && !adminMessage && !flag && (
         <button type="button" className="secondary" onClick={() => setAttempt(value => value + 1)}>
           Reintentar
         </button>
@@ -117,6 +131,9 @@ function ParticipantPanel({ user }) {
   const [message, setMessage] = useState(null);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [remaining, setRemaining] = useState(0);
+  const [code, setCode] = useState('');
+  const [codeInstruction, setCodeInstruction] = useState('');
+  const [codeExpiresAt, setCodeExpiresAt] = useState(0);
 
   useEffect(() => {
     if (!cooldownUntil) {
@@ -135,9 +152,26 @@ function ParticipantPanel({ user }) {
 
   const blocked = remaining > 0;
 
+  useEffect(() => {
+    if (!codeExpiresAt) return undefined;
+    const update = () => {
+      const left = Math.max(0, Math.ceil((codeExpiresAt - Date.now()) / 1000));
+      if (left === 0) {
+        setCodeExpiresAt(0);
+        setCode('');
+        setCodeInstruction('');
+      }
+    };
+    update();
+    const id = window.setInterval(update, 1000);
+    return () => window.clearInterval(id);
+  }, [codeExpiresAt]);
+
+  const codeExpired = codeExpiresAt > 0 && Date.now() >= codeExpiresAt;
+
   async function handleSubmit(event) {
     event.preventDefault();
-    if (busy || blocked) return;
+    if (busy || blocked || code) return;
 
     const cleanFlag = flag.trim();
     const cleanExplanation = explanation.trim();
@@ -165,12 +199,22 @@ function ParticipantPanel({ user }) {
       });
 
       if (data.correct) {
-        setMessage({
-          type: 'ok',
-          text: data.alreadySolved
-            ? 'Ya tenías esta resolución registrada. No se creó un duplicado.'
-            : 'Bandera correcta. Tu resolución quedó registrada.',
-        });
+        if (data.code) {
+          setCode(data.code);
+          setCodeInstruction(data.instruction || 'Envía este código al organizador por WhatsApp.');
+          setCodeExpiresAt(Date.now() + (data.expiresIn || 0) * 1000);
+          setMessage({
+            type: 'ok',
+            text: data.message || '¡Felicidades! Completaste el reto.',
+          });
+        } else {
+          setMessage({
+            type: 'ok',
+            text: data.alreadySolved
+              ? 'Ya tenías esta resolución registrada. No se creó un duplicado.'
+              : 'Bandera correcta. Tu resolución quedó registrada.',
+          });
+        }
         setFlag('');
         setExplanation('');
       } else {
@@ -248,11 +292,26 @@ function ParticipantPanel({ user }) {
           </p>
         )}
 
-        <button type="submit" disabled={busy || blocked}>
-          {busy ? 'Enviando…' : blocked ? `Espera ${remaining} s` : 'Enviar bandera'}
+        <button type="submit" disabled={busy || blocked || code || codeExpired}>
+          {busy ? 'Enviando…' : blocked ? `Espera ${remaining} s` : code ? 'Reto completado' : 'Enviar bandera'}
         </button>
         <p className="hint">La comparación y el registro ocurren en el servidor.</p>
       </form>
+
+      {code && !codeExpired && (
+        <div className="code-display" role="status">
+          <p className="ok">{message?.text}</p>
+          <p className="code-instruction">{codeInstruction}</p>
+          <div className="code-box"><code>{code}</code></div>
+          <p className="hint">El código expira en 10 minutos. Solo se muestra una vez.</p>
+        </div>
+      )}
+
+      {codeExpired && (
+        <div className="code-expired" role="status">
+          <p>El código de verificación expiró. Contacta al organizador.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -285,7 +344,7 @@ export default function App() {
     setError('');
     setBusy(true);
     try { await action(); }
-    catch { setError('No se pudo conectar con Cognito. Revisa tu conexión y la configuración en src/auth.js.'); }
+    catch { setError('No se pudo conectar con Cognito. Revisa tu conexión y las variables VITE_COGNITO_* de .env.local.'); }
     finally { setBusy(false); }
   }
 
@@ -304,18 +363,25 @@ export default function App() {
   }
 
   const admin = user ? isAdminUser(user) : false;
+  const emailVerified = user ? isEmailVerified(user) : false;
   const intro = user
-    ? admin
+    ? !emailVerified
       ? {
-        eyebrow: '02 / ADMINISTRACIÓN',
-        title: <>Control del<br />laboratorio.</>,
-        lead: 'Tu cuenta pertenece al grupo admin. Esta bandera es única para tu usuario y esta edición.',
+        eyebrow: '01 / CORREO NO CONFIRMADO',
+        title: <>Confirma tu<br />correo electrónico.</>,
+        lead: 'Antes de continuar, revisa tu bandeja de entrada y haz clic en el enlace de confirmación que te envió Amazon Cognito.',
       }
-      : {
-        eyebrow: '02 / PARTICIPANTE',
-        title: <>Encuentra<br />la bandera.</>,
-        lead: 'Tu cuenta pertenece al grupo participante. Explora la API y entrega lo que encuentres.',
-      }
+      : admin
+        ? {
+          eyebrow: '02 / ADMINISTRACIÓN',
+          title: <>Control del<br />laboratorio.</>,
+          lead: 'Tu cuenta pertenece al grupo admin. Esta bandera es única para tu usuario y esta edición.',
+        }
+        : {
+          eyebrow: '02 / PARTICIPANTE',
+          title: <>Encuentra<br />la bandera.</>,
+          lead: 'Tu cuenta pertenece al grupo participante. Explora la API y entrega lo que encuentres.',
+        }
     : {
       eyebrow: '01 / IDENTIDAD',
       title: <>Todo empieza<br />con el acceso.</>,
@@ -359,11 +425,37 @@ export default function App() {
               <button disabled={busy} onClick={() => run(login)}>
                 {busy ? 'Conectando…' : 'Iniciar sesión con Cognito'}<span aria-hidden="true"> →</span>
               </button>
-              <p className="hint">Se abrirá la página de acceso de Amazon Cognito.</p>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => window.location.assign(buildRegisterUrl())}
+              >
+                Crear cuenta
+              </button>
+              <p className="hint">Se abrirá la página de acceso y registro de Amazon Cognito.</p>
             </>
           )}
 
-          {!loading && user && (
+          {!loading && user && !emailVerified && (
+            <>
+              <div className="icon" aria-hidden="true">✉️</div>
+              <p className="eyebrow">ACCESO AL LABORATORIO</p>
+              <h2>Confirma tu correo electrónico.</h2>
+              <p className="error" role="alert">
+                Antes de participar, confirma tu cuenta. Revisa tu bandeja de entrada (y correo no deseado)
+                y haz clic en el enlace de confirmación que te envió Amazon Cognito.
+              </p>
+              <p className="description">
+                Si no recibiste el correo, inicia sesión nuevamente para solicitar un código de confirmación.
+              </p>
+              <button disabled={busy} onClick={() => run(login)}>
+                {busy ? 'Conectando…' : 'Iniciar sesión con Cognito'}<span aria-hidden="true"> →</span>
+              </button>
+              <p className="hint">Sin la confirmación de correo no se puede acceder al reto.</p>
+            </>
+          )}
+
+          {!loading && user && emailVerified && (
             <>
               <SessionBar user={user} admin={admin} />
               {error && <p className="error" role="alert">{error}</p>}

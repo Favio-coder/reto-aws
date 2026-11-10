@@ -1,9 +1,14 @@
 node_modules/
 dist/
-.aws-sam/
-samconfig.toml
+build/
 .env
 .env.local
 .env.*.local
 !.env.example
+.aws-sam/
+samconfig.toml
+samconfig.toml.example
 *.log
+.DS_Store
+.vercel
+README.md

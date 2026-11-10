@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 
-const userPoolId = 'us-east-1_wkQY366JQ';
-const clientId = '4b5jtn0tvsajtu8jv0j0bgnlla';
+const userPoolId = 'us-east-1_EXAMPLE00000';
+const clientId = 'TU_CLIENT_ID';
 const issuer = `https://cognito-idp.us-east-1.amazonaws.com/${userPoolId}`;
 const kid = 'test-key';
 

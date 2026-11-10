@@ -1,15 +1,22 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Reto Ciber - HTTP API + Lambda + DynamoDB para un laboratorio CTF educativo.
+Description: Reto Ciber - HTTP API + Lambda sobre una tabla DynamoDB existente para un laboratorio CTF educativo.
 
 Parameters:
+  TableName:
+    Type: String
+    Default: TU_TABLA_DYNAMODB
+    MinLength: 3
+    MaxLength: 255
+    AllowedPattern: '^[A-Za-z0-9_.-]+$'
+    Description: Nombre de la tabla DynamoDB ya creada desde la consola. Este stack no la crea ni la elimina.
   UserPoolId:
     Type: String
-    Default: us-east-1_wkQY366JQ
+    Default: TU_USER_POOL_ID
     Description: User Pool ID de Cognito.
   ClientId:
     Type: String
-    Default: 4b5jtn0tvsajtu8jv0j0bgnlla
+    Default: TU_CLIENT_ID
     Description: Client ID SPA público de Cognito.
   AppOrigin:
     Type: String
@@ -24,31 +31,10 @@ Parameters:
     Description: "Con 'true' se activa la omisión educativa de grupo solo en GET /admin/flag; con 'false' se exige admin."
   ChallengeId:
     Type: String
-    Default: reto-ciber-2026
+    Default: TU_CHALLENGE_ID
     Description: Identificador de la edición; forma parte de la clave de la bandera.
 
 Resources:
-  LabTable:
-    Type: AWS::DynamoDB::Table
-    DeletionPolicy: Delete
-    UpdateReplacePolicy: Retain
-    Properties:
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: sk
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-        - AttributeName: sk
-          KeyType: RANGE
-      SSESpecification:
-        SSEEnabled: true
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: false
-
   LabFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -59,10 +45,9 @@ Resources:
         - arm64
       MemorySize: 256
       Timeout: 10
-      ReservedConcurrentExecutions: 5
       Environment:
         Variables:
-          TABLE_NAME: !Ref LabTable
+          TABLE_NAME: !Ref TableName
           USER_POOL_ID: !Ref UserPoolId
           CLIENT_ID: !Ref ClientId
           APP_ORIGIN: !Ref AppOrigin
@@ -75,7 +60,7 @@ Resources:
                 - dynamodb:GetItem
                 - dynamodb:PutItem
                 - dynamodb:UpdateItem
-              Resource: !GetAtt LabTable.Arn
+              Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${TableName}'
       Events:
         AdminFlag:
           Type: HttpApi
@@ -131,8 +116,8 @@ Outputs:
     Description: URL base para VITE_API_URL (sin barra final).
     Value: !Sub https://${LabHttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod
   TableName:
-    Description: Tabla DynamoDB del laboratorio.
-    Value: !Ref LabTable
+    Description: Tabla DynamoDB existente usada por la Lambda (no forma parte del stack).
+    Value: !Ref TableName
   FunctionName:
     Description: Función Lambda.
     Value: !Ref LabFunction

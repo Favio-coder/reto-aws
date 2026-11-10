@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { createHandler } from '../src/app.mjs';
 import { createMemoryStore } from './memory-store.mjs';
 
-const userPoolId = 'us-east-1_wkQY366JQ';
-const clientId = '4b5jtn0tvsajtu8jv0j0bgnlla';
+const userPoolId = 'TU_USER_POOL_ID';
+const clientId = 'TU_CLIENT_ID';
 const appOrigin = 'http://localhost:5173';
 
 const participantClaims = {
@@ -92,7 +92,10 @@ test('LAB_MODE=true permite al participante obtener su propia bandera', async ()
   assert.match(data.flag, /^FLAG\{[A-Za-z0-9_-]{43}\}$/);
 
   const adminResponse = await handler(httpEvent({ token: 'admin-token' }));
-  assert.notEqual(parse(adminResponse).flag, data.flag);
+  const adminData = parse(adminResponse);
+  assert.equal(adminResponse.statusCode, 200);
+  assert.equal(adminData.message, '¡Felicidades, ingresaste como administrador!');
+  assert.equal(adminData.flag, undefined);
 });
 
 test('LAB_MODE=false rechaza al participante y permite al admin', async () => {
@@ -105,7 +108,9 @@ test('LAB_MODE=false rechaza al participante y permite al admin', async () => {
 
   const adminResponse = await handler(httpEvent({ token: 'admin-token' }));
   assert.equal(adminResponse.statusCode, 200);
-  assert.match(parse(adminResponse).flag, /^FLAG\{/);
+  const adminData = parse(adminResponse);
+  assert.equal(adminData.message, '¡Felicidades, ingresaste como administrador!');
+  assert.equal(adminData.flag, undefined);
 });
 
 test('la bandera es estable y la creación condicional resiste concurrencia', async () => {
