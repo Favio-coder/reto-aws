@@ -408,9 +408,7 @@ export default function App() {
           <p>Usa este correo para acceder al modo administrador, la contraseña tu mismo descubrelo</p>
           <p>Prohibido: Usar fuerza bruta, se bloquea la IP y pierdes tus intentos</p>
           <div className="steps">
-            <span className={user ? 'done' : 'current'}>01 Autenticación</span>
-            <span className={user ? 'current' : ''}>02 API</span>
-            <span>03 Reto</span>
+            
           </div>
         </div>
 
