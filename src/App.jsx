@@ -46,19 +46,24 @@ function AdminPanel({ user }) {
     getAdminFlag(user.access_token)
       .then(data => {
         if (!active) return;
-        // Administrador real: mensaje sin bandera.
-        if (typeof data.message === 'string' && data.message && !data.flag) {
+
+        // Respuesta de administrador: solo mensaje, sin bandera.
+        if (typeof data.message === 'string' && data.message) {
           setAdminMessage(data.message);
           setFlag('');
           return;
         }
+
         // Ya completado: no mostrar la bandera nuevamente.
         if (data.alreadySolved || typeof data.flag !== 'string' || !data.flag) {
           setAdminMessage(data.message || 'Ya completaste el reto.');
           setFlag('');
           return;
         }
+
+        // Participante con bandera válida (solo en LAB_MODE=true).
         setFlag(data.flag);
+        setAdminMessage('');
       })
       .catch(failure => {
         if (active) setError(errorMessage(failure, 'No se pudo obtener la bandera desde la API.'));
@@ -92,7 +97,7 @@ function AdminPanel({ user }) {
     <div className="panel">
       <div className="icon" aria-hidden="true">◆</div>
       <p className="eyebrow">BANDERA DE ADMINISTRADOR</p>
-      <h2>{loading ? 'Obteniendo bandera…' : flag ? 'Tu bandera está lista.' : 'No se pudo cargar.'}</h2>
+      <h2>{loading ? 'Obteniendo bandera…' : flag ? 'Tu bandera está lista.' : adminMessage ? adminMessage : 'No se pudo cargar.'}</h2>
 
       {error && <p className="error" role="alert">{error}</p>}
 
