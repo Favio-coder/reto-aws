@@ -11,4 +11,4 @@ samconfig.toml.example
 *.log
 .DS_Store
 .vercel
-README.md
+./README.md
